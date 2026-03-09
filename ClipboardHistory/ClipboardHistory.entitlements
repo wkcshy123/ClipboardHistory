@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Accessibility for AXUIElement API -->
+    <key>com.apple.security.automation.apple-events</key>
+    <true/>
+
+    <!-- Required for AppleScript and Accessibility control -->
+    <key>com.apple.security.personal-information.allow-accessibility</key>
+    <true/>
+
+    <!-- Sandbox exceptions if needed (optional but recommended for clipboard access) -->
+    <key>com.apple.security.temporary-exception.files.absolute-path.read-write</key>
+    <array>
+        <string>~/Library/Application Support/ClipboardHistory</string>
+    </array>
+
+    <!-- Network access (optional) -->
+    <key>com.apple.security.network.client</key>
+    <true/>
+
+    <!-- Hardware access for keyboard events -->
+    <key>com.apple.security.device.usb</key>
+    <true/>
+</dict>
+</plist>
