@@ -41,14 +41,43 @@ class HistoryPanel: NSPanel {
         // Save the active app before we activate our own
         previousActiveApp = NSWorkspace.shared.frontmostApplication
 
-        // Position panel at mouse
+        // Position panel at mouse with screen boundary check
         let mouseLocation = NSEvent.mouseLocation
         let panelWidth = frame.width
         let panelHeight = frame.height
-        let x = mouseLocation.x - panelWidth / 2
-        let y = mouseLocation.y - panelHeight - 10
+        
+        var x = mouseLocation.x - panelWidth / 2
+        var y = mouseLocation.y - panelHeight - 10
+        
+        // Get screen frame (excluding menu bar)
+        guard let screen = NSScreen.main else {
+            setFrameOrigin(NSPoint(x: x, y: y))
+            activateAndShow()
+            return
+        }
+        
+        let screenFrame = screen.visibleFrame
+        
+        // Adjust x position to stay within screen bounds
+        if x < screenFrame.minX {
+            x = screenFrame.minX
+        } else if x + panelWidth > screenFrame.maxX {
+            x = screenFrame.maxX - panelWidth
+        }
+        
+        // Adjust y position to stay within screen bounds
+        if y < screenFrame.minY {
+            // If panel would go below screen, show above mouse instead
+            y = mouseLocation.y + 10
+        } else if y + panelHeight > screenFrame.maxY {
+            y = screenFrame.maxY - panelHeight
+        }
+        
         setFrameOrigin(NSPoint(x: x, y: y))
-
+        activateAndShow()
+    }
+    
+    private func activateAndShow() {
         // Activate app and show panel
         NSApp.activate(ignoringOtherApps: true)
         makeKeyAndOrderFront(nil)
@@ -68,8 +97,22 @@ struct HistoryListView: View {
     @State private var searchText = ""
 
     private var filteredItems: [ClipboardItem] {
-        searchText.isEmpty ? clipboardManager.history : clipboardManager.history.filter {
-            $0.preview.localizedCaseInsensitiveContains(searchText)
+        guard !searchText.isEmpty else { return clipboardManager.history }
+        let lowercasedQuery = searchText.lowercased()
+        return clipboardManager.history.filter { item in
+            // Search in preview first
+            if item.preview.lowercased().contains(lowercasedQuery) {
+                return true
+            }
+            // Search in full text content for text items
+            if item.type == .text, let fullText = item.textContent {
+                return fullText.lowercased().contains(lowercasedQuery)
+            }
+            // Search in file path for file items
+            if item.type == .fileURL, let path = item.fileURL?.path {
+                return path.lowercased().contains(lowercasedQuery)
+            }
+            return false
         }
     }
 
@@ -92,16 +135,53 @@ struct HistoryListView: View {
                 }
                 .buttonStyle(.plain)
                 .listRowInsets(EdgeInsets(top: 4, leading: 8, bottom: 4, trailing: 8))
+                .contextMenu {
+                    Button("Delete") {
+                        if let index = clipboardManager.history.firstIndex(where: { $0.id == item.id }) {
+                            clipboardManager.history.remove(at: index)
+                            StorageManager.shared.saveHistory()
+                        }
+                    }
+                    Button("Copy Only (Don't Paste)") {
+                        let pasteboard = NSPasteboard.general
+                        pasteboard.clearContents()
+                        switch item.type {
+                        case .text:
+                            if let text = item.textContent {
+                                pasteboard.setString(text, forType: .string)
+                            }
+                        case .image:
+                            if let image = item.getImage() {
+                                pasteboard.writeObjects([image])
+                            }
+                        case .fileURL:
+                            if let url = item.fileURL {
+                                pasteboard.writeObjects([url as NSURL])
+                            }
+                        }
+                        HistoryPanel.shared.hide()
+                    }
+                }
             }
             .listStyle(.plain)
         }
         .background(Color(NSColor.windowBackgroundColor))
         .frame(width: 400, height: 500)
+        .onExitCommand {
+            HistoryPanel.shared.hide()
+        }
     }
 }
 
 struct HistoryItemView: View {
     let item: ClipboardItem
+    
+    private static let dateFormatter: RelativeDateTimeFormatter = {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .short
+        return formatter
+    }()
+    
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
             Group {
@@ -123,8 +203,6 @@ struct HistoryItemView: View {
     }
 
     private func timeAgoString(from date: Date) -> String {
-        let formatter = RelativeDateTimeFormatter()
-        formatter.unitsStyle = .short
-        return formatter.localizedString(for: date, relativeTo: Date())
+        Self.dateFormatter.localizedString(for: date, relativeTo: Date())
     }
 }

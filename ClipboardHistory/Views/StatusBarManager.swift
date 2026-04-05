@@ -53,7 +53,19 @@ class StatusBarManager: ObservableObject {
     }
 
     @objc private func clearHistory() {
-        ClipboardManager.shared.clearHistory()
+        let alert = NSAlert()
+        alert.messageText = "Clear All Clipboard History?"
+        alert.informativeText = "This action cannot be undone. All your clipboard history will be permanently deleted."
+        alert.addButton(withTitle: "Clear")
+        alert.addButton(withTitle: "Cancel")
+        alert.alertStyle = .warning
+        
+        NSApp.activate(ignoringOtherApps: true)
+        let response = alert.runModal()
+        
+        if response == .alertFirstButtonReturn {
+            ClipboardManager.shared.clearHistory()
+        }
     }
 
     private var settingsWindow: NSWindow?

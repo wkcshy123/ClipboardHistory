@@ -12,12 +12,36 @@ class HotkeyManager: ObservableObject {
         set { defaults.set(newValue, forKey: hotkeyKey) }
     }
 
-    @Published var isRecording = false
+    @Published var isRecording = false {
+        didSet {
+            if isRecording {
+                installLocalEventMonitor()
+            } else {
+                removeLocalEventMonitor()
+            }
+        }
+    }
     @Published var recordedHotkey: String?
 
     private var hotkeyRef: EventHotKeyRef?
     private let hotkeySignature: OSType = OSType(fourCharCode: "CBHK")
     private let hotkeyID: UInt32 = 1
+    private var localEventMonitor: Any?
+    
+    // Static key code mapping tables for faster lookup
+    private static let keyCodeToStringMap: [UInt16: String] = [
+        0: "A", 1: "S", 2: "D", 3: "F", 4: "H", 5: "G", 6: "Z", 7: "X", 8: "C", 9: "V",
+        11: "B", 12: "Q", 13: "W", 14: "E", 15: "R", 16: "Y", 17: "T", 31: "O", 32: "U",
+        34: "I", 35: "P", 126: "Up", 125: "Down", 123: "Left", 124: "Right", 49: "Space",
+        36: "Return", 48: "Tab", 53: "Escape", 51: "Delete"
+    ]
+    
+    private static let stringToKeyCodeMap: [String: UInt16] = [
+        "A": 0, "S": 1, "D": 2, "F": 3, "H": 4, "G": 5, "Z": 6, "X": 7, "C": 8, "V": 9,
+        "B": 11, "Q": 12, "W": 13, "E": 14, "R": 15, "Y": 16, "T": 17, "O": 31, "U": 32,
+        "I": 34, "P": 35, "UP": 126, "DOWN": 125, "LEFT": 123, "RIGHT": 124, "SPACE": 49,
+        "RETURN": 36, "TAB": 48, "ESCAPE": 53, "DELETE": 51
+    ]
 
     private init() {}
 
@@ -50,7 +74,7 @@ class HotkeyManager: ObservableObject {
             GetApplicationEventTarget(),
             { (_, _, userData) -> OSStatus in
                 guard let userData = userData else { return noErr }
-                let manager = Unmanaged<HotkeyManager>.fromOpaque(userData).takeUnretainedValue()
+                _ = Unmanaged<HotkeyManager>.fromOpaque(userData).takeUnretainedValue()
                 DispatchQueue.main.async {
                     HistoryPanel.shared.toggle()
                 }
@@ -89,7 +113,7 @@ class HotkeyManager: ObservableObject {
         print("🔧 Accessibility enabled: \(AXIsProcessTrusted())")
 
         // Register new hotkey
-        var hotkeyID = EventHotKeyID(signature: hotkeySignature, id: self.hotkeyID)
+        let hotkeyID = EventHotKeyID(signature: hotkeySignature, id: self.hotkeyID)
         let status = RegisterEventHotKey(
             UInt32(keyCode),
             carbonModifiers,
@@ -103,6 +127,32 @@ class HotkeyManager: ObservableObject {
             print("❌ Failed to register hotkey, error code: \(status)")
         } else {
             print("✅ Hotkey registered successfully!")
+        }
+    }
+
+    private func installLocalEventMonitor() {
+        localEventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self = self, self.isRecording else { return event }
+            
+            // Ignore modifier keys alone
+            let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            let hasNonModifierKey = event.keyCode != 0x37 && event.keyCode != 0x38 && event.keyCode != 0x3A && event.keyCode != 0x3B
+            let hasAtLeastOneModifier = modifiers.contains(.command) || modifiers.contains(.option) || modifiers.contains(.shift) || modifiers.contains(.control)
+            
+            // Require at least one modifier key for global shortcut to avoid conflicts
+            if hasNonModifierKey && hasAtLeastOneModifier {
+                self.recordPressedKeys(event: event)
+                return nil // Consume the event
+            }
+            
+            return event
+        }
+    }
+    
+    private func removeLocalEventMonitor() {
+        if let monitor = localEventMonitor {
+            NSEvent.removeMonitor(monitor)
+            localEventMonitor = nil
         }
     }
 
@@ -121,7 +171,9 @@ class HotkeyManager: ObservableObject {
             parts.append(keyString)
         }
 
+        guard !parts.isEmpty else { return }
         recordedHotkey = parts.joined(separator: "+")
+        isRecording = false
     }
 
     private func parseHotkey(_ hotkeyString: String) -> (NSEvent.ModifierFlags, UInt16?) {
@@ -143,78 +195,23 @@ class HotkeyManager: ObservableObject {
     }
 
     private func keyCodeToString(_ keyCode: UInt16) -> String? {
-        switch keyCode {
-        case 0: return "A"
-        case 1: return "S"
-        case 2: return "D"
-        case 3: return "F"
-        case 4: return "H"
-        case 5: return "G"
-        case 6: return "Z"
-        case 7: return "X"
-        case 8: return "C"
-        case 9: return "V"
-        case 11: return "B"
-        case 12: return "Q"
-        case 13: return "W"
-        case 14: return "E"
-        case 15: return "R"
-        case 16: return "Y"
-        case 17: return "T"
-        case 31: return "O"
-        case 32: return "U"
-        case 34: return "I"
-        case 35: return "P"
-        case 126: return "Up"
-        case 125: return "Down"
-        case 123: return "Left"
-        case 124: return "Right"
-        case 49: return "Space"
-        case 36: return "Return"
-        case 48: return "Tab"
-        case 53: return "Escape"
-        case 51: return "Delete"
-        default: return String(keyCode)
-        }
+        return Self.keyCodeToStringMap[keyCode] ?? String(keyCode)
     }
 
     private func stringToKeyCode(_ keyString: String) -> UInt16? {
-        switch keyString.uppercased() {
-        case "A": return 0
-        case "S": return 1
-        case "D": return 2
-        case "F": return 3
-        case "H": return 4
-        case "G": return 5
-        case "Z": return 6
-        case "X": return 7
-        case "C": return 8
-        case "V": return 9
-        case "B": return 11
-        case "Q": return 12
-        case "W": return 13
-        case "E": return 14
-        case "R": return 15
-        case "Y": return 16
-        case "T": return 17
-        case "O": return 31
-        case "U": return 32
-        case "I": return 34
-        case "P": return 35
-        case "UP": return 126
-        case "DOWN": return 125
-        case "LEFT": return 123
-        case "RIGHT": return 124
-        case "SPACE": return 49
-        case "RETURN", "ENTER": return 36
-        case "TAB": return 48
-        case "ESCAPE", "ESC": return 53
-        case "DELETE", "BACKSPACE": return 51
+        let uppercased = keyString.uppercased()
+        // Check mapping table first
+        if let code = Self.stringToKeyCodeMap[uppercased] {
+            return code
+        }
+        // Handle aliases
+        switch uppercased {
+        case "ENTER": return 36
+        case "ESC": return 53
+        case "BACKSPACE": return 51
         default:
-            if let code = UInt16(keyString) {
-                return code
-            }
-            return 9 // Default to V
+            // Try to parse as numeric key code
+            return UInt16(uppercased)
         }
     }
 }

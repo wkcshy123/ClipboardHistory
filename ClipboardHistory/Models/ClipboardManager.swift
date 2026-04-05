@@ -97,11 +97,11 @@ class ClipboardManager: ObservableObject {
         // Step 2: Hide our panel
         HistoryPanel.shared.hide()
 
-        // Step 3: Wait, activate previous app and paste
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+        // Step 3: Wait, activate previous app and paste (reduced delay for faster response)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
             previousApp.activate(options: .activateIgnoringOtherApps)
 
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                 self.sendPasteViaCGEventDirect()
             }
         }
