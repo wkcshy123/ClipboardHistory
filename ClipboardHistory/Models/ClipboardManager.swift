@@ -10,7 +10,11 @@ class ClipboardManager: ObservableObject {
     static let shared = ClipboardManager()
 
     @Published var history: [ClipboardItem] = []
-    @AppStorage("maxHistoryItems") private var maxHistoryItems = 50
+    private let defaults = UserDefaults.standard
+    private var maxHistoryItems: Int {
+        get { defaults.integer(forKey: "maxHistoryItems") > 0 ? defaults.integer(forKey: "maxHistoryItems") : 50 }
+        set { defaults.set(newValue, forKey: "maxHistoryItems") }
+    }
     
     #if os(macOS)
     private var lastChangeCount = NSPasteboard.general.changeCount
