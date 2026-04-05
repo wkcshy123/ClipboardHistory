@@ -1,18 +1,29 @@
-import AppKit
 import Combine
+
+#if os(macOS)
+import AppKit
+#elseif os(iOS)
+import UIKit
+#endif
 
 class ClipboardManager: ObservableObject {
     static let shared = ClipboardManager()
 
     @Published var history: [ClipboardItem] = []
-    private let maxHistoryItems = 50
+    @AppStorage("maxHistoryItems") private var maxHistoryItems = 50
+    
+    #if os(macOS)
     private var lastChangeCount = NSPasteboard.general.changeCount
     private var timer: Timer?
+    #elseif os(iOS)
+    private var lastChangeCount = UIPasteboard.general.changeCount
+    #endif
 
     private init() {
         history = StorageManager.shared.loadHistory()
     }
 
+    #if os(macOS)
     func startMonitoring() {
         timer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
             self?.checkClipboard()
@@ -23,8 +34,10 @@ class ClipboardManager: ObservableObject {
         timer?.invalidate()
         timer = nil
     }
+    #endif
 
-    private func checkClipboard() {
+    func checkClipboard() {
+        #if os(macOS)
         let pasteboard = NSPasteboard.general
         guard pasteboard.changeCount != lastChangeCount else { return }
         lastChangeCount = pasteboard.changeCount
@@ -53,6 +66,33 @@ class ClipboardManager: ObservableObject {
             addItem(ClipboardItem(text: text))
             return
         }
+        #elseif os(iOS)
+        let pasteboard = UIPasteboard.general
+        guard pasteboard.changeCount != lastChangeCount else { return }
+        lastChangeCount = pasteboard.changeCount
+
+        // 检查文件URL
+        if let fileURLs = pasteboard.urls, !fileURLs.isEmpty {
+            for url in fileURLs {
+                addItem(ClipboardItem(fileURL: url))
+            }
+            return
+        }
+
+        // 检查图片
+        if let image = pasteboard.image {
+            if let pngData = image.pngData() {
+                addItem(ClipboardItem(image: UIImage(data: pngData)!))
+            }
+            return
+        }
+
+        // 检查文本
+        if let text = pasteboard.string {
+            addItem(ClipboardItem(text: text))
+            return
+        }
+        #endif
     }
 
     private func addItem(_ item: ClipboardItem) {
@@ -71,15 +111,23 @@ class ClipboardManager: ObservableObject {
         StorageManager.shared.saveHistory()
     }
 
-    func copyItemToClipboard(_ item: ClipboardItem) {
+    func copyItemToClipboard(_ item: ClipboardItem, autoPaste: Bool = true) {
         // Step 1: Copy to clipboard
+        #if os(macOS)
         let pasteboard = NSPasteboard.general
+        #elseif os(iOS)
+        let pasteboard = UIPasteboard.general
+        #endif
         pasteboard.clearContents()
 
         switch item.type {
         case .text:
             if let text = item.textContent {
+                #if os(macOS)
                 pasteboard.setString(text, forType: .string)
+                #elseif os(iOS)
+                pasteboard.string = text
+                #endif
             }
         case .image:
             if let image = item.getImage() {
@@ -87,17 +135,21 @@ class ClipboardManager: ObservableObject {
             }
         case .fileURL:
             if let url = item.fileURL {
+                #if os(macOS)
                 pasteboard.writeObjects([url as NSURL])
+                #elseif os(iOS)
+                pasteboard.url = url
+                #endif
             }
         }
 
-        // Save reference to previous app
-        guard let previousApp = HistoryPanel.shared.previousActiveApp else { return }
+        #if os(macOS)
+        guard autoPaste, let previousApp = HistoryPanel.shared.previousActiveApp else { return }
 
         // Step 2: Hide our panel
         HistoryPanel.shared.hide()
 
-        // Step 3: Wait, activate previous app and paste (reduced delay for faster response)
+        // Step 3: Wait, activate previous app and paste
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
             previousApp.activate(options: .activateIgnoringOtherApps)
 
@@ -105,6 +157,7 @@ class ClipboardManager: ObservableObject {
                 self.sendPasteViaCGEventDirect()
             }
         }
+        #endif
     }
 
     private func sendPasteWithNSEvent() {

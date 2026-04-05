@@ -1,4 +1,8 @@
+#if os(macOS)
 import AppKit
+#elseif os(iOS)
+import UIKit
+#endif
 
 enum ClipboardContentType: Codable {
     case text
@@ -40,6 +44,7 @@ struct ClipboardItem: Identifiable, Codable, Equatable {
         self.preview = String(text.prefix(100)).trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    #if os(macOS)
     init(image: NSImage) {
         self.id = UUID()
         self.type = .image
@@ -49,6 +54,27 @@ struct ClipboardItem: Identifiable, Codable, Equatable {
         self.fileURL = nil
         self.preview = "🖼️  Image"
     }
+    
+    func getImage() -> NSImage? {
+        guard let data = imageData else { return nil }
+        return NSImage(data: data)
+    }
+    #elseif os(iOS)
+    init(image: UIImage) {
+        self.id = UUID()
+        self.type = .image
+        self.timestamp = Date()
+        self.textContent = nil
+        self.imageData = image.pngData()
+        self.fileURL = nil
+        self.preview = "🖼️  Image"
+    }
+    
+    func getImage() -> UIImage? {
+        guard let data = imageData else { return nil }
+        return UIImage(data: data)
+    }
+    #endif
 
     init(fileURL: URL) {
         self.id = UUID()
@@ -58,11 +84,6 @@ struct ClipboardItem: Identifiable, Codable, Equatable {
         self.imageData = nil
         self.fileURL = fileURL
         self.preview = "📁 \(fileURL.lastPathComponent)"
-    }
-
-    func getImage() -> NSImage? {
-        guard let data = imageData else { return nil }
-        return NSImage(data: data)
     }
 
     static func == (lhs: ClipboardItem, rhs: ClipboardItem) -> Bool {
